@@ -1,0 +1,22 @@
+{
+  "name": "pos-kasir-backend",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "bun run prisma/seed.ts"
+  },
+  "dependencies": {
+    "@elysiajs/cors": "^1.0.2",
+    "@elysiajs/jwt": "^1.0.2",
+    "@prisma/client": "^5.7.0",
+    "elysia": "^1.0.12"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "prisma": "^5.7.0"
+  }
+}
