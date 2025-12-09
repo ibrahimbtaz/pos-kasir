@@ -54,6 +54,24 @@ services:
     networks:
       - pos-network
 
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: pos-phpmyadmin
+    restart: always
+    ports:
+      - "8080:80"
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: pos_user
+      PMA_PASSWORD: pos_password
+      UPLOAD_LIMIT: 50M
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - pos-network
+
 volumes:
   mysql_data:
 
