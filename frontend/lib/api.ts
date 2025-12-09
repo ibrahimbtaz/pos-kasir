@@ -11,7 +11,7 @@ const getApiUrl = (): string => {
   
   // If accessing via localhost, use localhost
   if (currentHost === 'localhost' || currentHost === '127.0.0.1') {
-    return 'http://localhost:3001';
+    return `${protocol}//${currentHost}:3001`;
   }
   
   // If accessing via IP or domain, use the same host with backend port

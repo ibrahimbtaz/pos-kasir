@@ -7,31 +7,35 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
-import { Camera, QrCode, Package, CheckCircle, XCircle, AlertTriangle, Upload, Image } from "lucide-react";
+import { Camera, QrCode, Package, CheckCircle, XCircle, AlertTriangle, Upload, Image, Minus, Plus, ShoppingCart } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
 
-interface ScanResult {
-  success: boolean;
-  product?: {
-    id: number;
-    name: string;
-    sku: string;
-    stock: number;
-    price: number;
-  };
-  message: string;
+interface ScannedProduct {
+  id: number;
+  name: string;
+  sku: string;
+  stock: number;
+  price: number;
+}
+
+interface TransactionItem {
+  product: ScannedProduct;
+  quantity: number;
 }
 
 export default function ScanPage() {
   const [scanning, setScanning] = useState(false);
   const [manualCode, setManualCode] = useState("");
-  const [lastResult, setLastResult] = useState<ScanResult | null>(null);
-  const [scanHistory, setScanHistory] = useState<ScanResult[]>([]);
+  const [scannedProduct, setScannedProduct] = useState<ScannedProduct | null>(null);
+  const [quantity, setQuantity] = useState(1);
+  const [transactionItems, setTransactionItems] = useState<TransactionItem[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [cameras, setCameras] = useState<{ id: string; label: string }[]>([]);
   const [selectedCamera, setSelectedCamera] = useState<string>("");
   const [isHttps, setIsHttps] = useState(true);
   const [scanMode, setScanMode] = useState<'camera' | 'upload'>('camera');
+  const [lastScannedSku, setLastScannedSku] = useState<string>("");
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -168,42 +172,159 @@ export default function ScanPage() {
     }
   };
 
+  // handleScan hanya mencari produk, TIDAK mengurangi stok
   const handleScan = async (qrCode: string) => {
+    // Prevent duplicate scans of the same product
+    if (qrCode === lastScannedSku && scannedProduct) {
+      toast({
+        title: "Produk Sudah Dipindai",
+        description: `${scannedProduct.name} sudah ada. Atur jumlah lalu klik Tambah ke Keranjang.`,
+      });
+      return;
+    }
+
     try {
-      const response = await api.scanQR(qrCode);
+      // Cari produk berdasarkan QR/SKU (tidak mengurangi stok)
+      const response = await api.getProductByQR(qrCode);
       
-      const result: ScanResult = {
-        success: response.success,
-        product: response.data?.product,
-        message: response.message || "Unknown error",
-      };
-
-      setLastResult(result);
-      setScanHistory((prev) => [result, ...prev].slice(0, 10));
-
-      if (response.success) {
+      if (response.success && response.data) {
+        const product = response.data;
+        setScannedProduct(product);
+        setLastScannedSku(qrCode);
+        setQuantity(1);
+        
         toast({
-          title: "Scan Berhasil",
-          description: response.message,
+          title: "Produk Ditemukan",
+          description: `${product.name} - Stok: ${product.stock}`,
         });
       } else {
         toast({
           variant: "destructive",
-          title: "Scan Gagal",
-          description: response.message,
+          title: "Produk Tidak Ditemukan",
+          description: response.message || "QR Code tidak terdaftar",
         });
       }
     } catch (error) {
-      const result: ScanResult = {
-        success: false,
-        message: "Terjadi kesalahan saat scan",
-      };
-      setLastResult(result);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Terjadi kesalahan saat scan",
+        description: "Terjadi kesalahan saat mencari produk",
       });
+    }
+  };
+
+  // Tambah ke keranjang (belum kurangi stok)
+  const addToCart = () => {
+    if (!scannedProduct) return;
+    
+    if (quantity > scannedProduct.stock) {
+      toast({
+        variant: "destructive",
+        title: "Stok Tidak Cukup",
+        description: `Stok tersedia: ${scannedProduct.stock}`,
+      });
+      return;
+    }
+
+    if (quantity < 1) {
+      toast({
+        variant: "destructive",
+        title: "Jumlah Tidak Valid",
+        description: "Jumlah minimal adalah 1",
+      });
+      return;
+    }
+
+    // Check if product already in cart
+    const existingIndex = transactionItems.findIndex(
+      item => item.product.id === scannedProduct.id
+    );
+
+    if (existingIndex >= 0) {
+      // Update quantity
+      const newItems = [...transactionItems];
+      const newQty = newItems[existingIndex].quantity + quantity;
+      
+      if (newQty > scannedProduct.stock) {
+        toast({
+          variant: "destructive",
+          title: "Stok Tidak Cukup",
+          description: `Total di keranjang melebihi stok tersedia (${scannedProduct.stock})`,
+        });
+        return;
+      }
+      
+      newItems[existingIndex].quantity = newQty;
+      setTransactionItems(newItems);
+    } else {
+      // Add new item
+      setTransactionItems([...transactionItems, { product: scannedProduct, quantity }]);
+    }
+
+    toast({
+      title: "Ditambahkan ke Keranjang",
+      description: `${scannedProduct.name} x${quantity}`,
+    });
+
+    // Reset for next scan
+    setScannedProduct(null);
+    setLastScannedSku("");
+    setQuantity(1);
+  };
+
+  // Hapus item dari keranjang
+  const removeFromCart = (index: number) => {
+    setTransactionItems(transactionItems.filter((_, i) => i !== index));
+  };
+
+  // Proses transaksi - kurangi stok semua item
+  const processTransaction = async () => {
+    if (transactionItems.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Keranjang Kosong",
+        description: "Tambahkan produk ke keranjang terlebih dahulu",
+      });
+      return;
+    }
+
+    setIsProcessing(true);
+
+    try {
+      // Proses setiap item
+      for (const item of transactionItems) {
+        await api.reduceStock(
+          item.product.id, 
+          item.quantity, 
+          "Penjualan via scan QR"
+        );
+      }
+
+      const totalItems = transactionItems.reduce((sum, item) => sum + item.quantity, 0);
+      const totalPrice = transactionItems.reduce(
+        (sum, item) => sum + (Number(item.product.price) * item.quantity), 
+        0
+      );
+
+      toast({
+        title: "Transaksi Berhasil! ✓",
+        description: `${totalItems} item - Total: ${formatPrice(totalPrice)}`,
+      });
+
+      // Reset semua
+      setTransactionItems([]);
+      setScannedProduct(null);
+      setLastScannedSku("");
+      setQuantity(1);
+
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Gagal memproses transaksi",
+      });
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -384,85 +505,171 @@ export default function ScanPage() {
 
         {/* Result Section */}
         <div className="space-y-4">
-          {/* Last Scan Result */}
-          {lastResult && (
-            <Card className={lastResult.success ? "border-green-500" : "border-red-500"}>
+          {/* Scanned Product - Confirmation */}
+          {scannedProduct && (
+            <Card className="border-blue-500 border-2">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2">
-                  {lastResult.success ? (
-                    <CheckCircle className="h-5 w-5 text-green-500" />
-                  ) : (
-                    <XCircle className="h-5 w-5 text-red-500" />
-                  )}
-                  Hasil Scan Terakhir
+                  <Package className="h-5 w-5 text-blue-500" />
+                  Produk Ditemukan
                 </CardTitle>
+                <CardDescription>
+                  Atur jumlah lalu tambahkan ke keranjang
+                </CardDescription>
               </CardHeader>
-              <CardContent>
-                {lastResult.success && lastResult.product ? (
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">Produk</span>
-                      <span className="font-semibold">{lastResult.product.name}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">SKU</span>
-                      <span>{lastResult.product.sku}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">Harga</span>
-                      <span>{formatPrice(Number(lastResult.product.price))}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">Stok Tersisa</span>
-                      <span className={`font-bold ${lastResult.product.stock <= 10 ? 'text-red-600' : 'text-green-600'}`}>
-                        {lastResult.product.stock}
-                      </span>
-                    </div>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Nama</span>
+                    <span className="font-semibold">{scannedProduct.name}</span>
                   </div>
-                ) : (
-                  <p className="text-red-600">{lastResult.message}</p>
-                )}
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">SKU</span>
+                    <span>{scannedProduct.sku}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Harga</span>
+                    <span className="font-semibold">{formatPrice(Number(scannedProduct.price))}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Stok Tersedia</span>
+                    <span className={`font-bold ${scannedProduct.stock <= 10 ? 'text-red-600' : 'text-green-600'}`}>
+                      {scannedProduct.stock}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Quantity Selector */}
+                <div className="pt-4 border-t">
+                  <Label>Jumlah</Label>
+                  <div className="flex items-center gap-3 mt-2">
+                    <Button 
+                      variant="outline" 
+                      size="icon"
+                      onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                    <Input
+                      type="number"
+                      min="1"
+                      max={scannedProduct.stock}
+                      value={quantity}
+                      onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="w-20 text-center"
+                    />
+                    <Button 
+                      variant="outline" 
+                      size="icon"
+                      onClick={() => setQuantity(Math.min(scannedProduct.stock, quantity + 1))}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Subtotal: {formatPrice(Number(scannedProduct.price) * quantity)}
+                  </p>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-2">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => {
+                      setScannedProduct(null);
+                      setLastScannedSku("");
+                    }}
+                    className="flex-1"
+                  >
+                    Batal
+                  </Button>
+                  <Button onClick={addToCart} className="flex-1">
+                    <ShoppingCart className="h-4 w-4 mr-2" />
+                    Tambah ke Keranjang
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           )}
 
-          {/* Scan History */}
+          {/* Shopping Cart */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Package className="h-5 w-5" />
-                Riwayat Scan
+                <ShoppingCart className="h-5 w-5" />
+                Keranjang ({transactionItems.length} item)
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {scanHistory.length === 0 ? (
-                <p className="text-gray-500 text-center py-4">Belum ada riwayat scan</p>
+              {transactionItems.length === 0 ? (
+                <p className="text-gray-500 text-center py-4">
+                  Keranjang kosong. Scan produk untuk menambahkan.
+                </p>
               ) : (
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {scanHistory.map((item, index) => (
-                    <div
-                      key={index}
-                      className={`flex items-center justify-between p-2 rounded ${
-                        item.success ? "bg-green-50" : "bg-red-50"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        {item.success ? (
-                          <CheckCircle className="h-4 w-4 text-green-500" />
-                        ) : (
-                          <XCircle className="h-4 w-4 text-red-500" />
-                        )}
-                        <span className="text-sm">
-                          {item.product?.name || item.message}
-                        </span>
+                <div className="space-y-3">
+                  {/* Cart Items */}
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {transactionItems.map((item, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                      >
+                        <div className="flex-1">
+                          <p className="font-medium">{item.product.name}</p>
+                          <p className="text-sm text-gray-500">
+                            {formatPrice(Number(item.product.price))} x {item.quantity}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="font-semibold">
+                            {formatPrice(Number(item.product.price) * item.quantity)}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeFromCart(index)}
+                            className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <XCircle className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                      {item.product && (
-                        <span className="text-sm text-gray-500">
-                          Stok: {item.product.stock}
-                        </span>
-                      )}
+                    ))}
+                  </div>
+
+                  {/* Total */}
+                  <div className="pt-3 border-t">
+                    <div className="flex justify-between items-center text-lg font-bold">
+                      <span>Total</span>
+                      <span>
+                        {formatPrice(
+                          transactionItems.reduce(
+                            (sum, item) => sum + Number(item.product.price) * item.quantity,
+                            0
+                          )
+                        )}
+                      </span>
                     </div>
-                  ))}
+                    <p className="text-sm text-gray-500">
+                      {transactionItems.reduce((sum, item) => sum + item.quantity, 0)} item
+                    </p>
+                  </div>
+
+                  {/* Process Button */}
+                  <Button 
+                    onClick={processTransaction} 
+                    className="w-full mt-4 bg-green-600 hover:bg-green-700"
+                    disabled={isProcessing}
+                  >
+                    {isProcessing ? (
+                      "Memproses..."
+                    ) : (
+                      <>
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Proses Transaksi
+                      </>
+                    )}
+                  </Button>
                 </div>
               )}
             </CardContent>
