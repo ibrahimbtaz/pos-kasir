@@ -10,16 +10,6 @@ Aplikasi kasir berbasis website dengan fitur scan QR code untuk manajemen stok p
 - **ORM**: Prisma
 - **Container**: Docker & Docker Compose
 
-## Fitur
-
-- ✅ Login Admin
-- ✅ Manajemen Produk (CRUD)
-- ✅ Generate QR Code otomatis
-- ✅ Scan QR Code untuk mengurangi stok
-- ✅ Tambah/Kurang stok manual
-- ✅ Laporan stok
-- ✅ Riwayat perubahan stok
-
 ## Menjalankan dengan Docker
 
 ### Prasyarat
@@ -133,50 +123,6 @@ Frontend akan berjalan di http://localhost:3000
 - `POST /stock/scan` - Scan QR and reduce stock by 1
 - `GET /stock/logs` - Get stock logs
 - `GET /stock/report` - Get stock report
-
-## Struktur Project
-
-```
-pos-kasir2/
-├── docker-compose.yml
-├── backend/
-│   ├── Dockerfile
-│   ├── package.json
-│   ├── prisma/
-│   │   ├── schema.prisma
-│   │   └── seed.ts
-│   └── src/
-│       ├── index.ts
-│       ├── lib/
-│       │   └── prisma.ts
-│       └── routes/
-│           ├── auth.ts
-│           ├── products.ts
-│           └── stock.ts
-└── frontend/
-    ├── Dockerfile
-    ├── package.json
-    ├── next.config.js
-    ├── tailwind.config.js
-    ├── app/
-    │   ├── layout.tsx
-    │   ├── page.tsx (Login)
-    │   ├── globals.css
-    │   └── dashboard/
-    │       ├── layout.tsx
-    │       ├── page.tsx (Dashboard)
-    │       ├── products/
-    │       │   └── page.tsx
-    │       ├── scan/
-    │       │   └── page.tsx
-    │       └── report/
-    │           └── page.tsx
-    ├── components/
-    │   └── ui/
-    └── lib/
-        ├── api.ts
-        └── utils.ts
-```
 
 ## License
 
